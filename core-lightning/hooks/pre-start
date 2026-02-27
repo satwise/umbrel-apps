@@ -1,26 +1,27 @@
 #!/usr/bin/env bash
 
 # Delay booting Core Lightning until the REST Tor Hidden Service is ready
-
-HIDDEN_SERVICE_FILE="${TOR_DATA_DIR}/app-${APP_ID}-rest/hostname"
+# Gen 3 Fix: Point to the clnrest directory VS fully -deprecated c-lightning-REST dir
+HIDDEN_SERVICE_FILE="${TOR_DATA_DIR}/app-${APP_ID}-clnrest/hostname"
 
 if [[ -f "${HIDDEN_SERVICE_FILE}" ]]; then
-	exit
+        exit
 fi
 
+# Bring up services early to trigger hidden service generation
 "${UMBREL_ROOT}/scripts/app" compose "${APP_ID}" up --detach lightningd
 "${UMBREL_ROOT}/scripts/app" compose "${APP_ID}" up --detach tor
 
-echo "App: ${APP_ID} - Generating Tor Hidden Service..."
+echo "App: ${APP_ID} - Generating Gen 3 Tor Hidden Service..."
 
 for attempt in $(seq 1 100); do
-	if [[ -f "${HIDDEN_SERVICE_FILE}" ]]; then
-		echo "App: ${APP_ID} - Hidden service file created successfully!"
-		break
-	fi
-	sleep 0.1
+        if [[ -f "${HIDDEN_SERVICE_FILE}" ]]; then
+                echo "App: ${APP_ID} - Hidden service file created successfully!"
+                break
+        fi
+        sleep 0.1
 done
 
 if [[ ! -f "${HIDDEN_SERVICE_FILE}" ]]; then
-	echo "App: ${APP_ID} - Hidden service file wasn't created"
+        echo "App: ${APP_ID} - Hidden service file wasn't created"
 fi
