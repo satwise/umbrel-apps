@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: core-lightning-rtl
 category: bitcoin
 name: Ride The Lightning (Core Lightning)
-version: "0.15.6-beta-boltz"
+version: "0.15.8-beta-boltz"
 tagline: Manage your Core Lightning node with RTL
 description: >-
   This version of RTL is specifically configured to use your Core Lightning node.
@@ -44,7 +44,10 @@ gallery:
 path: ""
 deterministicPassword: true
 releaseNotes: >-
-  This release contains the following updates:
-    - Bump boltz-client to 2.10.2
+  Bumped to RTL v0.15.8-beta-boltz and boltz-client v2.10.2.
+
+  - Fixes ECONNRESET crash loop when loading channels on CLN v25.09.3 (unhandled ONCHAIN state in the RTL channel parser)
+
+  - CLN connection now reads `CLNREST_URL` and `CLNREST_RUNE_PATH` directly from Core Lightning exports — no hardcoded IP/port reconstruction
 submitter: Umbrel
 submission: https://github.com/getumbrel/umbrel-apps/pull/7
