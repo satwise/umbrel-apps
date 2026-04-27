@@ -52,6 +52,7 @@ services:
       CLNREST_READONLY_RUNE: "${APP_LNBITS_CLN_READONLY_RUNE}"
       CLNREST_INVOICE_RUNE: "${APP_LNBITS_CLN_INVOICE_RUNE}"
       CLNREST_PAY_RUNE: "${APP_LNBITS_CLN_PAY_RUNE}"
+      CLNREST_RENEPAY_RUNE: "${APP_LNBITS_CLN_RENEPAY_RUNE}"
 
       # Public URL overrides — required for LNURL, LNDHub, and NIP-05 to emit
       # the operator's public domain instead of http://umbrel.local:PORT.
@@ -92,8 +93,7 @@ services:
         if [ "$$BACKEND_CLASS" = "CLNRestWallet" ]; then
           echo "Waiting for CLNRest readiness before starting LNbits..."
           for i in $$(seq 1 90); do
-            if curl -s --fail --max-time 5 \
-              --cacert "$$CLNREST_CA" \
+            if curl -sk --fail --max-time 5 \
               --cert "$$CLNREST_CLIENT_CERT" \
               --key "$$CLNREST_CLIENT_KEY" \
               -H "rune: $$CLNREST_READONLY_RUNE" \

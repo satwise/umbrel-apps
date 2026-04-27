@@ -12,9 +12,51 @@ set -euo pipefail
 CLN_CONTAINER="core-lightning_lightningd_1"
 RUNE_CACHE="${APP_DATA_DIR}/data/.clnrest-runes"
 
-# If runes already exist, skip creation
+# If runes already exist, check for migration needs before skipping
 if [[ -f "${RUNE_CACHE}" ]]; then
-	echo "App: ${APP_ID} - CLNRest runes already provisioned, skipping."
+	# shellcheck disable=SC1090
+	source "${RUNE_CACHE}"
+	if [[ -n "${APP_LNBITS_CLN_RENEPAY_RUNE:-}" ]]; then
+		echo "App: ${APP_ID} - CLNRest runes already provisioned, skipping."
+		exit 0
+	fi
+	# Migration: CLN v26.04+ added renepay plugin requiring its own rune
+	echo "App: ${APP_ID} - Migrating: adding CLNREST_RENEPAY_RUNE for CLN v26.04+..."
+	for attempt in $(seq 1 30); do
+		if docker exec "${CLN_CONTAINER}" lightning-cli getinfo >/dev/null 2>&1; then
+			break
+		fi
+		if [[ "${attempt}" -eq 30 ]]; then
+			echo "App: ${APP_ID} - ERROR: CLN not responsive after 30 attempts"
+			exit 1
+		fi
+		sleep 2
+	done
+	extract_rune() { sed -n 's/.*"rune"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'; }
+	RENEPAY_RESTRICTIONS='[["method=renepay"]]'
+	RENEPAY_RUNE=$(docker exec "${CLN_CONTAINER}" lightning-cli createrune restrictions="${RENEPAY_RESTRICTIONS}" | extract_rune)
+	if [[ -z "${RENEPAY_RUNE}" ]]; then
+		echo "App: ${APP_ID} - ERROR: Failed to create renepay rune"
+		exit 1
+	fi
+	printf 'APP_LNBITS_CLN_RENEPAY_RUNE="%s"\n' "${RENEPAY_RUNE}" >> "${RUNE_CACHE}"
+	echo "App: ${APP_ID} - Renepay rune added successfully"
+
+	# LNbits stores settings in SQLite and reads from DB rather than env vars on
+	# subsequent starts. Update the DB now so the warning is suppressed immediately
+	# on the next container start without requiring a manual DB fix.
+	LNBITS_DB="${APP_DATA_DIR}/data/database.sqlite3"
+	if [[ -f "${LNBITS_DB}" ]]; then
+		python3 -c "
+import sqlite3, sys
+c = sqlite3.connect('${LNBITS_DB}')
+rows = c.execute(\"UPDATE system_settings SET value='\\\"${RENEPAY_RUNE}\\\"' WHERE id='clnrest_renepay_rune' AND (value IS NULL OR value='')\").rowcount
+c.commit()
+c.close()
+sys.exit(0 if rows >= 0 else 1)
+" && echo "App: ${APP_ID} - Updated LNbits DB with renepay rune" \
+		  || echo "App: ${APP_ID} - WARNING: Could not update LNbits DB (will retry on next restart)"
+	fi
 	exit 0
 fi
 
@@ -48,15 +90,19 @@ INVOICE_RESTRICTIONS='[["method=invoice","method=waitanyinvoice","method=waitinv
 # Pay rune: pay, keysend, waitsendpay, listsendpays, listpays
 PAY_RESTRICTIONS='[["method=pay","method=keysend","method=waitsendpay","method=listsendpays","method=listpays"]]'
 
+# Renepay rune: renepay (CLN v26.04+ plugin)
+RENEPAY_RESTRICTIONS='[["method=renepay"]]'
+
 # Create each rune and extract the rune string (use sed for portability)
 extract_rune() { sed -n 's/.*"rune"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'; }
 
 READONLY_RUNE=$(docker exec "${CLN_CONTAINER}" lightning-cli createrune restrictions="${READONLY_RESTRICTIONS}" | extract_rune)
 INVOICE_RUNE=$(docker exec "${CLN_CONTAINER}" lightning-cli createrune restrictions="${INVOICE_RESTRICTIONS}" | extract_rune)
 PAY_RUNE=$(docker exec "${CLN_CONTAINER}" lightning-cli createrune restrictions="${PAY_RESTRICTIONS}" | extract_rune)
+RENEPAY_RUNE=$(docker exec "${CLN_CONTAINER}" lightning-cli createrune restrictions="${RENEPAY_RESTRICTIONS}" | extract_rune)
 
-# Validate all three runes were created
-if [[ -z "${READONLY_RUNE}" || -z "${INVOICE_RUNE}" || -z "${PAY_RUNE}" ]]; then
+# Validate all four runes were created
+if [[ -z "${READONLY_RUNE}" || -z "${INVOICE_RUNE}" || -z "${PAY_RUNE}" || -z "${RENEPAY_RUNE}" ]]; then
 	echo "App: ${APP_ID} - ERROR: Failed to create one or more runes"
 	exit 1
 fi
@@ -68,6 +114,7 @@ cat > "${RUNE_CACHE}" <<EOF
 APP_LNBITS_CLN_READONLY_RUNE="${READONLY_RUNE}"
 APP_LNBITS_CLN_INVOICE_RUNE="${INVOICE_RUNE}"
 APP_LNBITS_CLN_PAY_RUNE="${PAY_RUNE}"
+APP_LNBITS_CLN_RENEPAY_RUNE="${RENEPAY_RUNE}"
 EOF
 
 chmod 600 "${RUNE_CACHE}"
@@ -75,4 +122,4 @@ chmod 600 "${RUNE_CACHE}"
 echo "App: ${APP_ID} - CLNRest runes created successfully:"
 echo "  Readonly: method^list|method^get|method=summary|method=waitanyinvoice|method=waitinvoice"
 echo "  Invoice:  method=invoice|method=waitanyinvoice|method=waitinvoice|method=listinvoices"
-echo "  Pay:      method=pay|method=keysend|method=waitsendpay|method=listsendpays|method=listpays"
+echo "  Pay:      method=pay|method=keysend|method=waitsendpay|method=listsendpays|method=listpays"	echo "  Renepay:  method=renepay"
