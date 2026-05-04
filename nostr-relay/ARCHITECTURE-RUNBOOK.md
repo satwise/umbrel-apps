@@ -192,6 +192,33 @@ extra_hosts:
 
 If cloudflared app-level restart fails from ad-hoc compose commands due missing Umbrel env vars, restart the app using Umbrel app lifecycle tooling or dashboard.
 
+### Connector fallback recreate (known good)
+
+If Umbrel-managed compose recreation fails because required env vars are missing in a direct shell session, recreate only the connector container with explicit settings:
+
+```bash
+ssh umbrel@osias 'docker rm -f cloudflared_connector_1; \
+  docker run -d \
+    --name cloudflared_connector_1 \
+    --hostname cloudflared-connector \
+    --restart on-failure \
+    --stop-timeout 3 \
+    --network umbrel_main_network \
+    --add-host nostr-relay_relay_1:host-gateway \
+    -e CLOUDFLARED_TOKEN_FILE=/data/token \
+    -e CLOUDFLARED_METRICS_PORT=40901 \
+    -v /home/umbrel/umbrel/app-data/cloudflared/data:/data \
+    ghcr.io/radiokot/umbrel-cloudflared-connector:latest'
+```
+
+Then verify:
+
+```bash
+ssh umbrel@osias 'docker exec cloudflared_connector_1 grep nostr-relay_relay_1 /etc/hosts'
+ssh umbrel@osias 'curl -sSI -H "Accept: text/html" https://nostr.janx.com/ | head -8'
+ssh umbrel@osias 'curl -sS -H "Accept: application/nostr+json" https://nostr.janx.com/ | head -20'
+```
+
 ## Validation Checklist
 
 Run these checks after any deploy/routing change:
