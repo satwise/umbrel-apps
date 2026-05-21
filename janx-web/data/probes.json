@@ -127,8 +127,8 @@
       "id": "nostr-relay-container",
       "name": "Nostr Relay Container",
       "group": "Nostr",
-      "type": "docker-health",
-      "container": "nostr-relay_relay_1",
+      "type": "command",
+      "command": "S=$(docker inspect nostr-relay_relay_1 --format='{{.State.Status}}' 2>/dev/null); if [ \"$S\" = \"running\" ]; then echo Nostr relay running; else echo Nostr relay not running; exit 1; fi",
       "timeoutSeconds": 10
     },
     {
