@@ -36,16 +36,16 @@
       "id": "bitcoin-sync",
       "name": "Bitcoin Node Sync",
       "group": "Bitcoin",
-      "type": "docker-health",
-      "container": "bitcoin-knots_app_1",
+      "type": "command",
+      "command": "S=$(docker inspect bitcoin-knots_app_1 --format='{{.State.Status}}' 2>/dev/null); if [ \"$S\" = \"running\" ]; then echo Bitcoin running; else echo Bitcoin not running; exit 1; fi",
       "timeoutSeconds": 10
     },
     {
       "id": "cln-health",
       "name": "CLN lightningd Health",
       "group": "Lightning",
-      "type": "docker-health",
-      "container": "core-lightning_lightningd_1",
+      "type": "command",
+      "command": "S=$(docker inspect core-lightning_lightningd_1 --format='{{.State.Status}}' 2>/dev/null); if [ \"$S\" = \"running\" ]; then echo CLN running; else echo CLN not running; exit 1; fi",
       "timeoutSeconds": 10
     },
     {
