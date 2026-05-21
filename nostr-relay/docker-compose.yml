@@ -23,6 +23,18 @@ services:
     container_name: nostr-relay_relay_1
     user: "1000:1000"
     restart: on-failure
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          'awk ''$2 ~ /:1F90$/ && $4 == "0A" { found = 1 } END { exit !found }'' /proc/net/tcp /proc/net/tcp6',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     command: ["./nostr-rs-relay", "-c", "/app/config.toml", "-d", "/app/db"]
     volumes:
       - ${APP_DATA_DIR}/data/relay/config.toml:/app/config.toml
@@ -37,7 +49,9 @@ services:
       RELAY_HOST: "nostr-relay_relay_1"
       RELAY_PORT: "8080"
     volumes:
+      - ${APP_DATA_DIR}/data/relay-proxy/RelayManager.js:/app/RelayManager.js:ro
       - ${APP_DATA_DIR}/data/relay-proxy:/app/data
+      - ${APP_DATA_DIR}/data/relay/relay_page.html:/srv/relay/relay_page.html:ro
     depends_on:
       - relay
 
@@ -59,10 +73,13 @@ services:
         nostr-relay_relay_proxy_1,
         nostr-relay_web_1
       ADMIN_BACKUP_SCHEDULE_DEFAULT: "4h"
+      ADMIN_BACKUP_EXPORT_ENABLED_DEFAULT: "false"
+      ADMIN_BACKUP_EXPORT_DIR_DEFAULT: "/exports"
       ADMIN_RESTART_TIMEOUT_SECONDS: "15"
     volumes:
       - ${APP_DATA_DIR}/data:/data
       - ${APP_DATA_DIR}/admin/main.py:/app/main.py:ro
+      - ${APP_DATA_DIR}/data/admin-backups-export:/exports
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - relay-proxy
