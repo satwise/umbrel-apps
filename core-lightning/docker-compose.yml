@@ -48,6 +48,12 @@ services:
         ipv4_address: ${APP_CORE_LIGHTNING_IP}
   lightningd:
     image: elementsproject/lightningd:v25.09.3@sha256:ca95610b7db23a8fad5cf6e36044ecd4ff9124dcc7dae50bd151084d39feaf70
+    healthcheck:
+      test: ["CMD", "lightning-cli", "getinfo"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
     restart: on-failure
     ports:
       - ${APP_CORE_LIGHTNING_DAEMON_PORT}:9735

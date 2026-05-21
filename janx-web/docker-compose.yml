@@ -1,0 +1,60 @@
+version: "3.7"
+
+services:
+  web:
+    image: python:3.12-alpine
+    container_name: janx-web_web_1
+    restart: on-failure
+    stop_grace_period: 30s
+    working_dir: /app
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8099/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    ports:
+      - "8099:8099"
+    environment:
+      PORT: "8099"
+      RUN_COMMAND_PROBES: "true"
+      PUBLIC_LSP_TAB_ENABLED: "false"
+      HOME_VIEW_TARGET: "prod"
+      HOME_VIEW_DEV_URL: "/home-dev.html"
+      HOME_VIEW_PROD_URL: "/home-dev.html"
+    command: >-
+      sh -c "apk add --no-cache openssh-client docker-cli && pip install --no-cache-dir flask==3.0.3 && python /app/server.py"
+    volumes:
+      - ./data:/app:ro
+      - /home/umbrel/.ssh:/root/.ssh:ro
+      - /home/umbrel/.docker:/root/.docker:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - umbrel_main_network
+
+  home_dev:
+    image: python:3.12-alpine
+    container_name: janx-web_home_dev_1
+    restart: on-failure
+    stop_grace_period: 30s
+    working_dir: /app
+    command: >-
+      sh -c "python -m http.server 4010 --bind 0.0.0.0 --directory /app"
+    ports:
+      - "4010:4010"
+    volumes:
+      - ./data:/app:ro
+    networks:
+      - umbrel_main_network
+
+networks:
+  umbrel_main_network:
+    external: true

@@ -1,0 +1,167 @@
+{
+  "systems": [
+    {
+      "id": "janx-nip05-satwise",
+      "name": "janx.com NIP-05 (satwise)",
+      "group": "Identity",
+      "type": "http",
+      "url": "https://janx.com/.well-known/nostr.json?name=satwise",
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "janx-lnurlp-satwise",
+      "name": "janx.com LNURLP (satwise)",
+      "group": "Identity",
+      "type": "http",
+      "url": "https://janx.com/.well-known/lnurlp/satwise",
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "ssh-pi5",
+      "name": "Host Docker Access",
+      "group": "Connectivity",
+      "type": "command",
+      "command": "docker ps --format 'table {{.Names}}\\t{{.Status}}' | head -6",
+      "timeoutSeconds": 12
+    },
+    {
+      "id": "docker-context-pi5",
+      "name": "Docker Context Availability",
+      "group": "Connectivity",
+      "type": "command",
+      "command": "docker context ls --format '{{.Name}} {{.DockerEndpoint}}'",
+      "timeoutSeconds": 15
+    },
+    {
+      "id": "bitcoin-sync",
+      "name": "Bitcoin Node Sync",
+      "group": "Bitcoin",
+      "type": "docker-health",
+      "container": "bitcoin-knots_app_1",
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "cln-health",
+      "name": "CLN lightningd Health",
+      "group": "Lightning",
+      "type": "docker-health",
+      "container": "core-lightning_lightningd_1",
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "app-proxy-lnbits",
+      "name": "App Proxy (umbrel-lnbits-cln)",
+      "group": "Apps",
+      "type": "command",
+      "command": "OUT=$(docker inspect lnbits-cln_app_proxy_1 --format=\"{{range .Config.Env}}{{println .}}{{end}}\" 2>/dev/null | grep -E \"APP_HOST|APP_PORT\"); if [ -n \"$OUT\" ]; then echo \"$OUT\"; else echo Proxy not running; exit 1; fi",
+      "timeoutSeconds": 15
+    },
+    {
+      "id": "umbrel-network",
+      "name": "Umbrel Network Connectivity",
+      "group": "Network",
+      "type": "command",
+      "command": "docker network inspect umbrel_main_network --format=\"{{range .Containers}}{{.Name}} {{.IPv4Address}}\\n{{end}}\" 2>/dev/null | sort",
+      "timeoutSeconds": 20
+    },
+    {
+      "id": "tor-services",
+      "name": "Tor Hidden Services",
+      "group": "Network",
+      "type": "command",
+      "command": "OUT=$(docker ps --filter name=tor_server --format \"{{.Names}} {{.Status}}\" | head -20); if [ -n \"$OUT\" ]; then echo \"$OUT\"; else echo Tor services not running; exit 1; fi",
+      "timeoutSeconds": 15
+    },
+    {
+      "id": "disk-space",
+      "name": "Disk Space Check",
+      "group": "Operations",
+      "type": "command",
+      "command": "df -h /",
+      "timeoutSeconds": 15
+    },
+    {
+      "id": "resource-usage",
+      "name": "Container Resource Usage",
+      "group": "Operations",
+      "type": "command",
+      "command": "docker stats --no-stream --format \"table {{.Name}}\\t{{.CPUPerc}}\\t{{.MemUsage}}\" | grep -E \"bitcoin|lightning|core-lightning|lnbits\"",
+      "timeoutSeconds": 20
+    },
+    {
+      "id": "health-sweep",
+      "name": "DR Health Sweep",
+      "group": "Operations",
+      "type": "command",
+      "command": "FAIL=0; echo \"=== Bitcoin ===\"; B=$(docker inspect bitcoin-knots_app_1 --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null); if [ \"$B\" = \"healthy\" ] || [ \"$B\" = \"running\" ]; then echo \"$B\"; else echo \"${B:-DOWN}\"; FAIL=1; fi; echo; echo \"=== CLN ===\"; C=$(docker inspect core-lightning_lightningd_1 --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null); if [ \"$C\" = \"healthy\" ] || [ \"$C\" = \"running\" ]; then echo \"$C\"; else echo \"${C:-DOWN}\"; FAIL=1; fi; echo; echo \"=== LNbits CLN ===\"; N=$(docker inspect lnbits-cln_web_1 --format='{{.State.Status}}' 2>/dev/null); if [ \"$N\" = \"running\" ]; then echo \"$N\"; else echo \"${N:-DOWN}\"; FAIL=1; fi; echo; echo \"=== Disk ===\"; D=$(df -h / | tail -1); if [ -n \"$D\" ]; then echo \"$D\"; else echo DOWN; FAIL=1; fi; [ \"$FAIL\" -eq 0 ]",
+      "timeoutSeconds": 25
+    },
+    {
+      "id": "home-dev-service",
+      "name": "Home DEV Service Container",
+      "group": "Apps",
+      "type": "command",
+      "command": "docker ps --filter name=janx-web_home_dev_1 --format \"{{.Names}} {{.Status}} {{.Ports}}\" | grep -E \"^janx-web_home_dev_1 Up\"",
+      "timeoutSeconds": 15
+    },
+    {
+      "id": "nostr-public-page",
+      "name": "nostr.janx.com Landing Page",
+      "group": "Nostr",
+      "type": "http",
+      "url": "https://nostr.janx.com/",
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "nostr-nip11",
+      "name": "nostr.janx.com NIP-11",
+      "group": "Nostr",
+      "type": "http",
+      "url": "https://nostr.janx.com/",
+      "headers": {
+        "Accept": "application/nostr+json"
+      },
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "nostr-relay-container",
+      "name": "Nostr Relay Container",
+      "group": "Nostr",
+      "type": "docker-health",
+      "container": "nostr-relay_relay_1",
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "nostr-relay-process",
+      "name": "Nostr Relay Process Health",
+      "group": "Nostr",
+      "type": "command",
+      "command": "docker exec nostr-relay_relay_1 sh -c 'ls /proc/*/comm 2>/dev/null | xargs -I{} sh -c \"cat {} 2>/dev/null\" | grep -E \"^nostr-rs-relay$|^nostr_rs_relay$\" | head -1' | grep -q nostr",
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "nostr-relay-restarts",
+      "name": "Nostr Relay Restart Count",
+      "group": "Nostr",
+      "type": "command",
+      "command": "docker inspect nostr-relay_relay_1 --format='restarts={{.RestartCount}} started={{.State.StartedAt}} status={{.State.Status}}' | tee /tmp/_relay_inspect && grep -q 'status=running' /tmp/_relay_inspect",
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "nostr-relay-recent-logs",
+      "name": "Nostr Relay Recent Errors",
+      "group": "Nostr",
+      "type": "command",
+      "command": "ERR=$(docker logs --since 15m nostr-relay_relay_1 2>&1 | grep -vE '^\\s*$' | grep -E 'ERROR|FATAL|panic|jemalloc|Unsupported system page size' | tail -10); if [ -z \"$ERR\" ]; then echo no recent log matches; else echo \"$ERR\"; exit 1; fi",
+      "timeoutSeconds": 15
+    },
+    {
+      "id": "nostr-relay-ws",
+      "name": "Nostr Relay WebSocket (NIP-01)",
+      "group": "Nostr",
+      "type": "command",
+      "command": "python3 -c \"import socket,ssl,base64,os;k=base64.b64encode(os.urandom(16)).decode();ctx=ssl.create_default_context();s=socket.create_connection(('nostr.janx.com',443),timeout=8);w=ctx.wrap_socket(s,server_hostname='nostr.janx.com');req=f'GET / HTTP/1.1\\r\\nHost: nostr.janx.com\\r\\nUpgrade: websocket\\r\\nConnection: Upgrade\\r\\nSec-WebSocket-Key: {k}\\r\\nSec-WebSocket-Version: 13\\r\\n\\r\\n';w.sendall(req.encode());r=w.recv(4096).decode(errors='replace');print(r.split(chr(13)+chr(10)+chr(13)+chr(10))[0]);assert '101 Switching Protocols' in r,'no 101 upgrade';w.close()\"",
+      "timeoutSeconds": 12
+    }
+  ]
+}
