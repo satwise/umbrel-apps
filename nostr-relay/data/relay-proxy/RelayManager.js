@@ -175,12 +175,9 @@ class RelayManager {
     );
 
     // Reconnect relays that dropped unexpectedly.
-    this.ensureRelayConnectionsInterval = setInterval(
-      () => {
-        this.ensureRelayConnections();
-      },
-      60 * 1000,
-    );
+    this.ensureRelayConnectionsInterval = setInterval(() => {
+      this.ensureRelayConnections();
+    }, 60 * 1000);
   }
 
   getExpectedRelayUrls() {
@@ -235,7 +232,9 @@ class RelayManager {
     try {
       const relay = await this.initializeRelay(url);
       if (relay) {
-        const sub = relay.sub([{ authors: [this.pubkey] }]);
+        // Follow the relay firehose (all kinds/authors) and keep a short warm window
+        // so the dashboard catches up quickly after reconnects.
+        const sub = relay.sub([{ since: Math.floor(Date.now() / 1000) - 900 }]);
         sub.on("event", (event) => this.handleEvent(event, relay));
       }
     } catch (error) {
@@ -259,7 +258,7 @@ class RelayManager {
 
     // If a Kind 3 Contact List event is received with a newer created_at timestamp, we connect to any new relays in that list
     // that we are not already connected to and subscribe to events from those relays
-    if (event.kind === 3) {
+    if (event.kind === 3 && event.pubkey === this.pubkey) {
       if (
         this.latestRelays === null ||
         event.created_at > this.latestRelays.timestamp
