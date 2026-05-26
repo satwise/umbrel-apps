@@ -2,7 +2,12 @@ import { relayInit } from "nostr-tools";
 import "websocket-polyfill"; // polyfill for relayInit in nodejs
 import pRetry from "p-retry";
 
-import { readIdentifierFromFile, writeIdentifierToFile, deleteStoreFile, getPublicKeyAndRelaysFromIdentifier } from "./helpers.js";
+import {
+  readIdentifierFromFile,
+  writeIdentifierToFile,
+  deleteStoreFile,
+  getPublicKeyAndRelaysFromIdentifier,
+} from "./helpers.js";
 import { LOCAL_RELAY_URL, DISCOVERY_STATUS } from "./constants.js";
 
 /*
@@ -24,6 +29,7 @@ class RelayManager {
 
   resetState() {
     this.relays = {};
+    this.savedRelayOverrides = [];
     // latestRelays tracks relays from the most recent Kind 3 Contact List Event (or default relays if no Kind 3 Contact List Events have been received)
     this.latestRelays = null; // { relays, timestamp }
     this.identifier = null; // store to avoid having to read from file for getConnectionStatus
@@ -34,6 +40,10 @@ class RelayManager {
       clearInterval(this.cleanUpRelaysInterval);
       this.cleanUpRelaysInterval = null;
     }
+    if (this.ensureRelayConnectionsInterval) {
+      clearInterval(this.ensureRelayConnectionsInterval);
+      this.ensureRelayConnectionsInterval = null;
+    }
   }
 
   // ===============================
@@ -43,7 +53,9 @@ class RelayManager {
   async establishRelayConnections() {
     // We await successful connection to local nostr-rs-relay or else events from public relays will not be published to the local relay
     try {
-      this.localRelay = await this.initializeRelay(LOCAL_RELAY_URL, { isPrivate: true });
+      this.localRelay = await this.initializeRelay(LOCAL_RELAY_URL, {
+        isPrivate: true,
+      });
     } catch (error) {
       console.log(error?.message); // thrown by initializeRelay after all retry attempts have failed
       return;
@@ -70,14 +82,25 @@ class RelayManager {
     const connectRelay = () => {
       // error objects do not seem to ever be passed to relay.connect or the on error event handler
       return new Promise((resolve, reject) => {
-        relay.connect()
-        .then(resolve)
-        .catch(error => {
-            reject(error || new Error(`Connection to ${relay.url} failed without an error object.`));
+        relay
+          .connect()
+          .then(resolve)
+          .catch((error) => {
+            reject(
+              error ||
+                new Error(
+                  `Connection to ${relay.url} failed without an error object.`,
+                ),
+            );
           });
 
-        relay.on('error', error => {
-          reject(error || new Error(`Error event from ${relay.url} without an error object.`));
+        relay.on("error", (error) => {
+          reject(
+            error ||
+              new Error(
+                `Error event from ${relay.url} without an error object.`,
+              ),
+          );
         });
       });
     };
@@ -91,19 +114,24 @@ class RelayManager {
         forever: true, // retry forever or until abortController.abort is called
         maxTimeout: 1000 * 60 * 60, // max timeout between retries is 1 hour
         signal: abortController.signal,
-        onFailedAttempt: error => {
-          console.log (`Attempt ${error.attemptNumber} to connect to ${relay.url} failed.`);
+        onFailedAttempt: (error) => {
+          console.log(
+            `Attempt ${error.attemptNumber} to connect to ${relay.url} failed.`,
+          );
 
           // we do not abort for our local relay
           if (!isPrivate && !this.relays[url]) {
-            abortController.abort(`Additional connection attempts to ${relay.url} aborted because relay is no longer in user's Kind 3 Contact List.`);
+            abortController.abort(
+              `Additional connection attempts to ${relay.url} aborted because relay is no longer in user's Kind 3 Contact List.`,
+            );
           }
-
         },
       });
     } catch (error) {
       console.log(error.message);
-      throw new Error(`All attempts to connect to ${relay.url} have failed. No further attempts will be made.`);
+      throw new Error(
+        `All attempts to connect to ${relay.url} have failed. No further attempts will be made.`,
+      );
     }
 
     return relay;
@@ -119,22 +147,78 @@ class RelayManager {
     if (!identifierData) return;
 
     this.identifier = identifierData.identifier;
+    this.savedRelayOverrides = this.dedupeRelayUrls(identifierData.relays);
     console.log(`NIP-05/NIP-19 Identifier: ${this.identifier}`);
 
     this.status = DISCOVERY_STATUS.DISCOVERING_RELAYS;
 
-    const { pubkey, relays } = await getPublicKeyAndRelaysFromIdentifier(this.identifier);
+    const { pubkey, relays } = await getPublicKeyAndRelaysFromIdentifier(
+      this.identifier,
+    );
+    const effectiveRelays = this.dedupeRelayUrls([
+      ...(relays || []),
+      ...this.savedRelayOverrides,
+    ]);
     this.pubkey = pubkey;
-    this.latestRelays = { relays, timestamp: 0 };
+    this.latestRelays = { relays: effectiveRelays, timestamp: 0 };
 
-    for (const url of relays) {
+    for (const url of effectiveRelays) {
       this.connectAndSubscribeToRelay(url);
     }
 
     // Clean up relays that are not in the most recent Kind 3 Contact List Event every hour
-    this.cleanUpRelaysInterval = setInterval(() => {
-      this.removeOutdatedRelays();
-    }, 60 * 60 * 1000);
+    this.cleanUpRelaysInterval = setInterval(
+      () => {
+        this.removeOutdatedRelays();
+      },
+      60 * 60 * 1000,
+    );
+
+    // Reconnect relays that dropped unexpectedly.
+    this.ensureRelayConnectionsInterval = setInterval(
+      () => {
+        this.ensureRelayConnections();
+      },
+      60 * 1000,
+    );
+  }
+
+  getExpectedRelayUrls() {
+    let latestRelays = [];
+    try {
+      if (
+        this.latestRelays &&
+        typeof this.latestRelays.relays === "string" &&
+        this.latestRelays.relays
+      ) {
+        latestRelays = Object.keys(JSON.parse(this.latestRelays.relays));
+      } else if (Array.isArray(this.latestRelays?.relays)) {
+        latestRelays = this.latestRelays.relays;
+      }
+    } catch (e) {
+      /* ignore parse errors */
+    }
+
+    return this.dedupeRelayUrls([...latestRelays, ...this.savedRelayOverrides]);
+  }
+
+  ensureRelayConnections() {
+    const expectedRelays = this.getExpectedRelayUrls();
+
+    for (const url of expectedRelays) {
+      const relay = this.relays[url];
+
+      if (!relay) {
+        this.connectAndSubscribeToRelay(url);
+        continue;
+      }
+
+      // status 3 = CLOSED. Remove stale socket and re-initialize.
+      if (relay.status === 3) {
+        this.closeRelay(url);
+        this.connectAndSubscribeToRelay(url);
+      }
+    }
   }
 
   async connectAndSubscribeToRelay(url) {
@@ -152,7 +236,7 @@ class RelayManager {
       const relay = await this.initializeRelay(url);
       if (relay) {
         const sub = relay.sub([{ authors: [this.pubkey] }]);
-        sub.on('event', event => this.handleEvent(event, relay));
+        sub.on("event", (event) => this.handleEvent(event, relay));
       }
     } catch (error) {
       console.error(error?.message);
@@ -176,9 +260,17 @@ class RelayManager {
     // If a Kind 3 Contact List event is received with a newer created_at timestamp, we connect to any new relays in that list
     // that we are not already connected to and subscribe to events from those relays
     if (event.kind === 3) {
-      if (this.latestRelays === null || event.created_at > this.latestRelays.timestamp) {
-        console.log(`A more recent Kind 3 event was received from ${relay.url} with date: ${event.created_at}`);
-        this.latestRelays = { relays: event.content, timestamp: event.created_at };
+      if (
+        this.latestRelays === null ||
+        event.created_at > this.latestRelays.timestamp
+      ) {
+        console.log(
+          `A more recent Kind 3 event was received from ${relay.url} with date: ${event.created_at}`,
+        );
+        this.latestRelays = {
+          relays: event.content,
+          timestamp: event.created_at,
+        };
         const newRelays = Object.keys(JSON.parse(event.content));
         for (const url of newRelays) {
           this.connectAndSubscribeToRelay(url);
@@ -187,9 +279,16 @@ class RelayManager {
     }
 
     try {
-      this.localRelay.publish(event);
+      const publication = this.localRelay.publish(event);
+      if (publication && typeof publication.on === "function") {
+        publication.on("failed", (reason) => {
+          console.error(
+            `Local relay publish failed for event ${event.id}: ${reason}`,
+          );
+        });
+      }
     } catch (error) {
-      console.error('Error publishing to local relay:', error);
+      console.error("Error publishing to local relay:", error);
     }
   }
 
@@ -198,20 +297,10 @@ class RelayManager {
   // =====================
 
   removeOutdatedRelays() {
-    // Fix: getPublicKeyAndRelaysFromIdentifier returns an array for npub identifiers,
-    // so this.latestRelays.relays may be an array (initial state) or a JSON string
-    // (after a Kind 3 Contact List event is received). JSON.parse(array) throws a
-    // SyntaxError, causing the relay-proxy to crash 60 minutes after startup when
-    // the cleanup interval first fires.
-    let latestRelays = [];
-    try {
-      if (this.latestRelays && typeof this.latestRelays.relays === 'string' && this.latestRelays.relays) {
-        latestRelays = Object.keys(JSON.parse(this.latestRelays.relays));
-      } else if (Array.isArray(this.latestRelays?.relays)) {
-        latestRelays = this.latestRelays.relays;
-      }
-    } catch (e) { /* ignore parse errors */ }
-    const relaysToRemove = Object.keys(this.relays).filter(url => !latestRelays.includes(url));
+    const latestRelays = this.getExpectedRelayUrls();
+    const relaysToRemove = Object.keys(this.relays).filter(
+      (url) => !latestRelays.includes(url),
+    );
     if (relaysToRemove.length > 0) {
       console.log(`Removing outdated relays: ${relaysToRemove}`);
     }
@@ -242,18 +331,25 @@ class RelayManager {
     */
 
     // we map relayStates to an array of objects with url and readyState properties, while filtering out relays that may cause errors.
-    const relayStates = Object.entries(this.relays).map(([key, relay]) => {
-      if (relay.url && relay.status) {
-        return {
-          url: relay.url,
-          readyState: relay.status, // this is a getter
-        };
-      } else {
-        return null;
-      }
-    }).filter(state => state !== null);
+    const relayStates = Object.entries(this.relays)
+      .map(([key, relay]) => {
+        if (relay.url && relay.status) {
+          return {
+            url: relay.url,
+            readyState: relay.status, // this is a getter
+          };
+        } else {
+          return null;
+        }
+      })
+      .filter((state) => state !== null);
 
-    return { identifier: this.identifier, status: this.status, firstEventReceived: this.firstEventReceived, relayStates };
+    return {
+      identifier: this.identifier,
+      status: this.status,
+      firstEventReceived: this.firstEventReceived,
+      relayStates,
+    };
   }
 
   // ==========================
@@ -271,6 +367,24 @@ class RelayManager {
       this.closeRelay(url);
     }
     this.resetState();
+  }
+
+  dedupeRelayUrls(relays) {
+    const out = [];
+    const seen = new Set();
+
+    for (const raw of Array.isArray(relays) ? relays : []) {
+      const url = String(raw || "")
+        .trim()
+        .replace(/\/+$/, "");
+      if (!url) continue;
+      const key = url.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(url);
+    }
+
+    return out;
   }
 }
 
