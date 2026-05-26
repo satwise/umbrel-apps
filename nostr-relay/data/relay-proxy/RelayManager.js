@@ -225,6 +225,7 @@ class RelayManager {
     // including Tailscale magicDNS, local network domain name, IP address, etc.
     // This approach caters to the majority of use cases.
     if (url.startsWith("ws://")) return;
+    if (this.isLocalRelayUrl(url)) return;
 
     // we return early if the relay is currently being, or already is, initialized
     if (this.relays[url]) return;
@@ -239,6 +240,26 @@ class RelayManager {
       }
     } catch (error) {
       console.error(error?.message);
+    }
+  }
+
+  isLocalRelayUrl(url) {
+    const localHosts = new Set(["localhost", "127.0.0.1", "::1", "nostr.janx.com", "janx.local"]);
+
+    try {
+      const localRelay = new URL(LOCAL_RELAY_URL);
+      if (localRelay.hostname) {
+        localHosts.add(localRelay.hostname.toLowerCase());
+      }
+    } catch (_) {
+      // Ignore malformed LOCAL_RELAY_URL and continue with known local hosts.
+    }
+
+    try {
+      const parsed = new URL(url);
+      return localHosts.has((parsed.hostname || "").toLowerCase());
+    } catch (_) {
+      return false;
     }
   }
 
